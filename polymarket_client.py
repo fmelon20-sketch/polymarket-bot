@@ -276,6 +276,46 @@ class PolymarketClient:
             logger.error(f"Failed to fetch active markets: {e}")
             return []
 
+    async def get_all_active_markets(self, batch_size: int = 500) -> list[Market]:
+        """Fetch ALL active markets from the Gamma API (paginated).
+
+        Warning: This can return 20k+ markets. Use with caution.
+        """
+        all_markets = []
+        offset = 0
+
+        logger.info("Starting full market scan...")
+
+        while True:
+            params = {
+                "active": "true",
+                "closed": "false",
+                "limit": batch_size,
+                "offset": offset,
+            }
+
+            try:
+                data = await self._request("/markets", params)
+                if not data or not isinstance(data, list):
+                    break
+
+                markets = [self._parse_market(m) for m in data]
+                all_markets.extend(markets)
+
+                logger.info(f"Fetched {len(data)} markets (total: {len(all_markets)})")
+
+                if len(data) < batch_size:
+                    break
+
+                offset += batch_size
+
+            except Exception as e:
+                logger.error(f"Error fetching markets at offset {offset}: {e}")
+                break
+
+        logger.info(f"Full scan complete: {len(all_markets)} total markets")
+        return all_markets
+
     async def get_market_by_slug(self, slug: str) -> Optional[Market]:
         """Fetch a specific market by its slug."""
         params = {"slug": slug}

@@ -46,8 +46,10 @@ class PolymarketBot:
         self._last_check: Optional[datetime] = None
         self._alerts_sent_today = 0
         self._alerts_date = datetime.now(timezone.utc).date()
-        self._cached_markets = []
+        self._cached_edge_markets = []
         self._edge_markets_count = 0
+        self._total_markets_count = 0
+        self._initial_scan_done = False
 
     async def get_status(self) -> dict:
         """Get current bot status."""
@@ -56,28 +58,67 @@ class PolymarketBot:
             self._alerts_date = datetime.now(timezone.utc).date()
 
         return {
-            "tracked_markets": self.tracker.tracked_market_count,
+            "tracked_markets": self._total_markets_count,
             "edge_markets": self._edge_markets_count,
             "last_check": self._last_check.strftime("%Y-%m-%d %H:%M:%S UTC") if self._last_check else "never",
             "alerts_today": self._alerts_sent_today,
             "poll_interval": config.poll_interval_seconds,
             "uptime_seconds": int((datetime.now(timezone.utc) - self._start_time).total_seconds()),
+            "initial_scan_done": self._initial_scan_done,
         }
 
     async def get_trending(self):
         """Get trending markets in edge domains."""
-        if not self._cached_markets:
-            self._cached_markets = await self.polymarket.get_top_markets_by_volume(limit=50)
+        return self._cached_edge_markets[:10]
 
-        # Filter to edge markets only
-        edge_markets = []
-        for market in self._cached_markets:
-            if edge_filter.matches_edge(market.question, market.tags):
-                edge_markets.append(market)
-                if len(edge_markets) >= 10:
-                    break
+    async def _do_initial_scan(self):
+        """Do a full scan of ALL markets at startup to learn what exists."""
+        logger.info("Starting initial full market scan (this may take a minute)...")
 
-        return edge_markets
+        await self.notifier.send_message(
+            "🔄 <b>Scan initial en cours...</b>\n\n"
+            "Apprentissage de tous les marchés Polymarket.\n"
+            "Cela peut prendre 1-2 minutes."
+        )
+
+        try:
+            all_markets = await self.polymarket.get_all_active_markets()
+            self._total_markets_count = len(all_markets)
+
+            # Filter to find edge markets
+            edge_markets = []
+            for market in all_markets:
+                if edge_filter.matches_edge(market.question, market.tags):
+                    edge_markets.append(market)
+
+            self._edge_markets_count = len(edge_markets)
+
+            # Cache top edge markets by volume for /trending
+            edge_markets.sort(key=lambda m: m.volume_24h, reverse=True)
+            self._cached_edge_markets = edge_markets[:50]
+
+            # Learn all markets (no alerts on initial scan)
+            self.tracker.check_markets(all_markets)
+
+            self._initial_scan_done = True
+            self._last_check = datetime.now(timezone.utc)
+
+            logger.info(f"Initial scan complete: {self._total_markets_count} total, {self._edge_markets_count} edge markets")
+
+            await self.notifier.send_message(
+                f"✅ <b>Scan initial terminé!</b>\n\n"
+                f"📊 Marchés totaux: {self._total_markets_count:,}\n"
+                f"🎯 Marchés edge: {self._edge_markets_count}\n\n"
+                f"Le bot surveille maintenant les nouveaux marchés et changements."
+            )
+
+        except Exception as e:
+            logger.error(f"Error during initial scan: {e}", exc_info=True)
+            await self.notifier.send_message(
+                f"⚠️ <b>Erreur lors du scan initial</b>\n\n"
+                f"Le bot va réessayer avec un scan partiel."
+            )
+            self._initial_scan_done = True  # Continue anyway
 
     async def monitor_loop(self):
         """Main monitoring loop - optimized for fast new market detection."""
@@ -101,6 +142,10 @@ class PolymarketBot:
             "Utilise /trending pour voir les marchés edge actifs"
         )
 
+        # Do initial full scan
+        await self._do_initial_scan()
+
+        # Then regular monitoring
         while self._running:
             try:
                 await self._check_markets()
@@ -114,26 +159,31 @@ class PolymarketBot:
         logger.info("Checking markets...")
 
         try:
-            # Fetch more markets to increase chance of catching new ones
-            markets = await self.polymarket.get_active_markets(limit=200)
+            # Fetch ALL markets to catch new ones in any category
+            # This is the key change - we scan everything to find new edge markets
+            all_markets = await self.polymarket.get_all_active_markets()
 
-            if not markets:
+            if not all_markets:
                 logger.warning("No markets fetched from API")
                 return
 
-            logger.info(f"Fetched {len(markets)} active markets")
+            self._total_markets_count = len(all_markets)
+            logger.info(f"Fetched {len(all_markets)} active markets")
 
-            # Cache for trending
-            self._cached_markets = markets[:50]
+            # Find and cache edge markets
+            edge_markets = []
+            for market in all_markets:
+                if edge_filter.matches_edge(market.question, market.tags):
+                    edge_markets.append(market)
+
+            self._edge_markets_count = len(edge_markets)
+
+            # Update cached edge markets for /trending
+            edge_markets.sort(key=lambda m: m.volume_24h, reverse=True)
+            self._cached_edge_markets = edge_markets[:50]
 
             # Check for alerts (only edge domains will trigger)
-            alerts = self.tracker.check_markets(markets)
-
-            # Count edge markets
-            self._edge_markets_count = sum(
-                1 for m in markets
-                if edge_filter.matches_edge(m.question, m.tags)
-            )
+            alerts = self.tracker.check_markets(all_markets)
 
             if alerts:
                 logger.info(f"Found {len(alerts)} alerts to send")

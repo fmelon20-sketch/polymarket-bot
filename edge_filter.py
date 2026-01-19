@@ -39,7 +39,7 @@ EDGE_KEYWORDS: dict[EdgeDomain, list[str]] = {
         "psg", "paris saint-germain", "marseille", "lyon", "monaco", "lille",
         "lens", "nice", "rennes", "nantes", "strasbourg", "toulouse",
         # English clubs
-        "manchester united", "manchester city", "liverpool", "chelsea", "arsenal",
+        "manchester united", "manchester city", "liverpool", "chelsea fc", "arsenal",
         "tottenham", "newcastle", "west ham", "aston villa", "brighton",
         # Spanish clubs
         "real madrid", "barcelona", "atletico madrid", "sevilla", "valencia",
@@ -70,16 +70,13 @@ EDGE_KEYWORDS: dict[EdgeDomain, list[str]] = {
     ],
 
     EdgeDomain.LOL_LEC: [
-        # League
-        "lec", "league of legends", "lol esports", "lol eu",
-        # Teams
-        "fnatic", "g2 esports", "g2", "mad lions", "team vitality", "vitality",
-        "team heretics", "heretics", "koi", "sk gaming", "team bds", "bds",
-        "excel esports", "astralis", "karmine corp", "kcorp",
-        # Events
-        "worlds", "msi", "lec winter", "lec spring", "lec summer",
-        # Generic esports with LoL context
-        "riot games",
+        # League - be very specific to avoid false positives
+        "league of legends", "lol esports",
+        # Teams - use full names to avoid conflicts
+        "fnatic esports", "g2 esports", "mad lions", "team vitality esports",
+        "team heretics", "karmine corp", "kcorp",
+        # Events - specific
+        "lec winter", "lec spring", "lec summer", "lol worlds",
     ],
 
     EdgeDomain.POLITICS_FR: [
