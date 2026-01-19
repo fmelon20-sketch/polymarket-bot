@@ -30,11 +30,14 @@ class Market:
     closed: bool
     tags: list[str]
     image: Optional[str]
+    event_slug: Optional[str] = None  # The parent event's slug for URL
 
     @property
     def url(self) -> str:
         """Get the Polymarket URL for this market."""
-        return f"https://polymarket.com/event/{self.slug}"
+        # Use event_slug if available, otherwise fall back to market slug
+        slug = self.event_slug or self.slug
+        return f"https://polymarket.com/event/{slug}"
 
     @property
     def formatted_prices(self) -> str:
@@ -170,6 +173,12 @@ class PolymarketClient:
             except (ValueError, AttributeError):
                 pass
 
+        # Extract event slug from the events array if available
+        event_slug = None
+        events = data.get("events", [])
+        if events and isinstance(events, list) and len(events) > 0:
+            event_slug = events[0].get("slug")
+
         return Market(
             id=data.get("id", ""),
             question=data.get("question", ""),
@@ -184,6 +193,7 @@ class PolymarketClient:
             closed=data.get("closed", False),
             tags=data.get("tags", []) or [],
             image=data.get("image"),
+            event_slug=event_slug,
         )
 
     def _parse_event(self, data: dict) -> Event:
