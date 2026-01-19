@@ -27,6 +27,40 @@ DAILY_MARKET_PATTERNS = [
     r'\bmatch\s+on\s+(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}\b',
 ]
 
+# Patterns to detect live/in-play sports markets (no PRICE_CHANGE alerts for these)
+LIVE_SPORTS_PATTERNS = [
+    # Match outcomes with "vs" or "v" (indicates specific match)
+    r'\bvs\.?\s+\w+',
+    r'\bv\s+\w+.*\b(win|beat|defeat|score|goal)',
+    # Specific match questions
+    r'\b(win|beat|defeat)\s+(against|vs)',
+    r'(will|to)\s+\w+\s+(win|beat|defeat)\s+',
+    # Score/goal related
+    r'\bscore\s+(\d+\+?|over|under|more|at least)',
+    r'\bgoals?\s+(in|during|by|for)',
+    r'\bclean\s+sheet',
+    # First/next scorer
+    r'(first|next)\s+(goal)?scorer',
+    r'score\s+(first|next)',
+    # Match result
+    r'\b(halftime|half-time|full-time|fulltime)\s+(result|score)',
+    r'\bdraw\s+(at|in)',
+    # Sport-specific live markets
+    r'\b(red|yellow)\s+card',
+    r'\bpenalty\s+(kick|scored|missed)',
+    r'\bcorners?\s+(over|under|\d+)',
+]
+
+LIVE_SPORTS_COMPILED = [re.compile(p, re.IGNORECASE) for p in LIVE_SPORTS_PATTERNS]
+
+
+def is_live_sports_market(question: str) -> bool:
+    """Check if a market is a live sports match market (should skip PRICE_CHANGE alerts)."""
+    for pattern in LIVE_SPORTS_COMPILED:
+        if pattern.search(question):
+            return True
+    return False
+
 DAILY_PATTERNS_COMPILED = [re.compile(p, re.IGNORECASE) for p in DAILY_MARKET_PATTERNS]
 
 
@@ -250,31 +284,33 @@ class AlertTracker:
                 return alerts
 
             # PRICE CHANGE DETECTION
-            for outcome, current_price in zip(market.outcomes, market.outcome_prices):
-                previous_price = previous_state["prices"].get(outcome)
-                if previous_price is not None and previous_price > 0:
-                    price_change = current_price - previous_price
+            # Skip price change alerts for live sports matches (no value in these alerts)
+            if not is_live_sports_market(market.question):
+                for outcome, current_price in zip(market.outcomes, market.outcome_prices):
+                    previous_price = previous_state["prices"].get(outcome)
+                    if previous_price is not None and previous_price > 0:
+                        price_change = current_price - previous_price
 
-                    if abs(price_change) >= self.price_change_threshold:
-                        alert_key = f"price_{market_id}_{outcome}_{datetime.now(timezone.utc).strftime('%Y%m%d%H')}"
-                        # Check group cooldown
-                        if alert_key not in self._alerted_markets and not self._is_group_on_cooldown(market_group):
-                            alerts.append(Alert(
-                                alert_type=AlertType.PRICE_CHANGE,
-                                market=market,
-                                message=f"Mouvement de prix significatif pour {outcome}",
-                                edge_match=edge_match,
-                                metadata={
-                                    "outcome": outcome,
-                                    "price_change": price_change,
-                                    "previous_price": previous_price,
-                                    "current_price": current_price,
-                                },
-                            ))
-                            self._alerted_markets.add(alert_key)
-                            self._mark_group_alerted(market_group)
-                            logger.info(f"Price change alert: {market.question[:50]}... [{price_change:+.1%}]")
-                            break  # One alert per market per check
+                        if abs(price_change) >= self.price_change_threshold:
+                            alert_key = f"price_{market_id}_{outcome}_{datetime.now(timezone.utc).strftime('%Y%m%d%H')}"
+                            # Check group cooldown
+                            if alert_key not in self._alerted_markets and not self._is_group_on_cooldown(market_group):
+                                alerts.append(Alert(
+                                    alert_type=AlertType.PRICE_CHANGE,
+                                    market=market,
+                                    message=f"Mouvement de prix significatif pour {outcome}",
+                                    edge_match=edge_match,
+                                    metadata={
+                                        "outcome": outcome,
+                                        "price_change": price_change,
+                                        "previous_price": previous_price,
+                                        "current_price": current_price,
+                                    },
+                                ))
+                                self._alerted_markets.add(alert_key)
+                                self._mark_group_alerted(market_group)
+                                logger.info(f"Price change alert: {market.question[:50]}... [{price_change:+.1%}]")
+                                break  # One alert per market per check
 
             # VOLUME SPIKE DETECTION
             prev_volume = previous_state["volume_24h"]

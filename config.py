@@ -31,8 +31,9 @@ class Config:
 
     # Alert thresholds (customizable)
     # Minimum liquidity to alert on new markets (lower = earlier alerts)
+    # Set to $100 to catch new markets early - they often start with low liquidity
     liquidity_threshold_usd: float = field(
-        default_factory=lambda: float(os.getenv("LIQUIDITY_THRESHOLD_USD", "1000"))
+        default_factory=lambda: float(os.getenv("LIQUIDITY_THRESHOLD_USD", "100"))
     )
     # Price change threshold for existing markets (5% = 0.05)
     price_change_threshold: float = field(
