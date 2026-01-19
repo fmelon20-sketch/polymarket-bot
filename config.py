@@ -34,9 +34,9 @@ class Config:
     liquidity_threshold_usd: float = field(
         default_factory=lambda: float(os.getenv("LIQUIDITY_THRESHOLD_USD", "1000"))
     )
-    # Price change threshold for existing markets
+    # Price change threshold for existing markets (5% = 0.05)
     price_change_threshold: float = field(
-        default_factory=lambda: float(os.getenv("PRICE_CHANGE_THRESHOLD", "0.10"))
+        default_factory=lambda: float(os.getenv("PRICE_CHANGE_THRESHOLD", "0.05"))
     )
     # Volume spike threshold (100% = 1.0)
     volume_spike_threshold: float = field(
