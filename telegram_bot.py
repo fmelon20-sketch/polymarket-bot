@@ -1,6 +1,7 @@
 """Telegram bot for sending Polymarket alerts."""
 
 import logging
+from html import escape
 from typing import Optional
 
 from telegram import Bot, Update
@@ -214,7 +215,7 @@ Status: Running
                 lines.append(f"<b>{i}. {market.question[:70]}{'...' if len(market.question) > 70 else ''}</b>")
                 lines.append(f"   {market.formatted_prices}")
                 lines.append(f"   💧 Liq: ${market.liquidity:,.0f} | Vol: ${market.volume_24h:,.0f}")
-                lines.append(f"   🔗 <a href=\"{market.url}\">Ouvrir</a>")
+                lines.append(f'   🔗 <a href="{escape(market.url)}">Ouvrir</a>')
                 lines.append("")
 
             await update.message.reply_text(

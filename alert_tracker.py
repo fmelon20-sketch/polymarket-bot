@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
+from html import escape
 from polymarket_client import Market
 from edge_filter import edge_filter, EdgeMatch
 
@@ -83,7 +84,7 @@ class Alert:
             lines.append(f"🔍 Mots-clés: {keywords}")
 
         lines.append("")
-        lines.append(f"🔗 <a href=\"{self.market.url}\">Ouvrir sur Polymarket</a>")
+        lines.append(f'🔗 <a href="{escape(self.market.url)}">Ouvrir sur Polymarket</a>')
 
         return "\n".join(lines)
 
