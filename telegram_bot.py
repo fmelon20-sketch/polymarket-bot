@@ -149,20 +149,27 @@ class TelegramBotHandler:
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command."""
         welcome = """
-👋 <b>Welcome to Polymarket Alert Bot!</b>
+👋 <b>Polymarket Edge Bot</b>
 
-I monitor Polymarket prediction markets and send you alerts about:
-• 🆕 New high-volume markets
-• 📊 Significant price changes
-• 🔥 Volume spikes
-• 📈 Trending markets
+Je surveille les marchés Polymarket dans TES domaines d'expertise pour te permettre de te positionner en premier sur les nouveaux marchés mal pricés.
 
-<b>Commands:</b>
-/status - Check bot status
-/trending - See trending markets
-/help - Show this help message
+🎯 <b>Domaines surveillés:</b>
+⚽ Football Europe & International
+🎮 LoL / LEC
+🇫🇷 Politique Française
+🗼 France & Société
+🌦️ Météo
+🌍 Séismes
 
-The bot automatically monitors markets and sends alerts based on configured thresholds.
+<b>Alertes:</b>
+🚨 Nouveau marché dans ton domaine
+📊 Mouvement de prix (+10%)
+🔥 Pic de volume (+50%)
+
+<b>Commandes:</b>
+/status - État du bot
+/trending - Marchés edge actifs
+/help - Aide
         """.strip()
         await update.message.reply_text(welcome, parse_mode=ParseMode.HTML)
 
@@ -170,13 +177,15 @@ The bot automatically monitors markets and sends alerts based on configured thre
         """Handle /status command."""
         try:
             status = await self.get_status_callback()
+            edge_count = status.get('edge_markets', 0)
             message = f"""
-✅ <b>Bot Status</b>
+✅ <b>Edge Bot Status</b>
 
-📊 Markets tracked: {status['tracked_markets']}
-🕐 Last check: {status['last_check']}
-📬 Alerts sent today: {status['alerts_today']}
-⚙️ Poll interval: {status['poll_interval']}s
+📊 Marchés total: {status['tracked_markets']}
+🎯 Marchés edge: {edge_count}
+🕐 Dernier check: {status['last_check']}
+📬 Alertes aujourd'hui: {status['alerts_today']}
+⚡ Intervalle: {status['poll_interval']}s
 
 Status: Running
             """.strip()
@@ -194,18 +203,18 @@ Status: Running
             markets = await self.get_trending_callback()
             if not markets:
                 await update.message.reply_text(
-                    "📈 No trending markets found at the moment.",
+                    "🎯 Aucun marché dans tes domaines edge pour le moment.",
                     parse_mode=ParseMode.HTML,
                 )
                 return
 
-            lines = ["📈 <b>Trending Markets</b>", ""]
+            lines = ["🎯 <b>Marchés Edge Actifs</b>", ""]
 
             for i, market in enumerate(markets[:5], 1):
-                lines.append(f"<b>{i}. {market.question[:80]}{'...' if len(market.question) > 80 else ''}</b>")
+                lines.append(f"<b>{i}. {market.question[:70]}{'...' if len(market.question) > 70 else ''}</b>")
                 lines.append(f"   {market.formatted_prices}")
-                lines.append(f"   💰 Vol 24h: ${market.volume_24h:,.0f}")
-                lines.append(f"   🔗 <a href=\"{market.url}\">View</a>")
+                lines.append(f"   💧 Liq: ${market.liquidity:,.0f} | Vol: ${market.volume_24h:,.0f}")
+                lines.append(f"   🔗 <a href=\"{market.url}\">Ouvrir</a>")
                 lines.append("")
 
             await update.message.reply_text(

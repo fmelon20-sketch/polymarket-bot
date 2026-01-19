@@ -17,9 +17,9 @@ class Config:
     telegram_bot_token: str = field(default_factory=lambda: os.getenv("TELEGRAM_BOT_TOKEN", ""))
     telegram_chat_id: str = field(default_factory=lambda: os.getenv("TELEGRAM_CHAT_ID", ""))
 
-    # Polling settings
+    # Polling settings - 60 seconds for fast detection of new markets
     poll_interval_seconds: int = field(
-        default_factory=lambda: int(os.getenv("POLL_INTERVAL_SECONDS", "180"))
+        default_factory=lambda: int(os.getenv("POLL_INTERVAL_SECONDS", "60"))
     )
 
     # API settings
@@ -30,11 +30,17 @@ class Config:
     health_port: int = field(default_factory=lambda: int(os.getenv("PORT", "8080")))
 
     # Alert thresholds (customizable)
-    volume_threshold_usd: float = field(
-        default_factory=lambda: float(os.getenv("VOLUME_THRESHOLD_USD", "10000"))
+    # Minimum liquidity to alert on new markets (lower = earlier alerts)
+    liquidity_threshold_usd: float = field(
+        default_factory=lambda: float(os.getenv("LIQUIDITY_THRESHOLD_USD", "1000"))
     )
+    # Price change threshold for existing markets
     price_change_threshold: float = field(
         default_factory=lambda: float(os.getenv("PRICE_CHANGE_THRESHOLD", "0.10"))
+    )
+    # Volume spike threshold (50% = 0.5)
+    volume_spike_threshold: float = field(
+        default_factory=lambda: float(os.getenv("VOLUME_SPIKE_THRESHOLD", "0.50"))
     )
 
     # Optional: filter by tags/categories

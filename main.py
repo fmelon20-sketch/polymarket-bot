@@ -1,10 +1,10 @@
-"""Main entry point for the Polymarket Telegram Bot."""
+"""Main entry point for the Polymarket Telegram Bot - Edge-focused version."""
 
 import asyncio
 import logging
 import signal
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 import uvicorn
@@ -14,6 +14,7 @@ from polymarket_client import PolymarketClient
 from alert_tracker import AlertTracker
 from telegram_bot import TelegramNotifier, TelegramBotHandler
 from health_server import create_health_app
+from edge_filter import edge_filter
 
 # Configure logging
 logging.basicConfig(
@@ -25,13 +26,14 @@ logger = logging.getLogger(__name__)
 
 
 class PolymarketBot:
-    """Main bot orchestrator."""
+    """Main bot orchestrator - Edge-focused for early market positioning."""
 
     def __init__(self):
         self.polymarket = PolymarketClient()
         self.tracker = AlertTracker(
-            volume_threshold=config.volume_threshold_usd,
+            liquidity_threshold=config.liquidity_threshold_usd,
             price_change_threshold=config.price_change_threshold,
+            volume_spike_threshold=config.volume_spike_threshold,
         )
         self.notifier = TelegramNotifier(
             token=config.telegram_bot_token,
@@ -40,45 +42,63 @@ class PolymarketBot:
         self.bot_handler: Optional[TelegramBotHandler] = None
 
         self._running = False
-        self._start_time = datetime.utcnow()
+        self._start_time = datetime.now(timezone.utc)
         self._last_check: Optional[datetime] = None
         self._alerts_sent_today = 0
-        self._alerts_date = datetime.utcnow().date()
+        self._alerts_date = datetime.now(timezone.utc).date()
         self._cached_markets = []
+        self._edge_markets_count = 0
 
     async def get_status(self) -> dict:
         """Get current bot status."""
-        if datetime.utcnow().date() != self._alerts_date:
+        if datetime.now(timezone.utc).date() != self._alerts_date:
             self._alerts_sent_today = 0
-            self._alerts_date = datetime.utcnow().date()
+            self._alerts_date = datetime.now(timezone.utc).date()
 
         return {
             "tracked_markets": self.tracker.tracked_market_count,
+            "edge_markets": self._edge_markets_count,
             "last_check": self._last_check.strftime("%Y-%m-%d %H:%M:%S UTC") if self._last_check else "never",
             "alerts_today": self._alerts_sent_today,
             "poll_interval": config.poll_interval_seconds,
-            "uptime_seconds": int((datetime.utcnow() - self._start_time).total_seconds()),
+            "uptime_seconds": int((datetime.now(timezone.utc) - self._start_time).total_seconds()),
         }
 
     async def get_trending(self):
-        """Get trending markets."""
+        """Get trending markets in edge domains."""
         if not self._cached_markets:
-            self._cached_markets = await self.polymarket.get_top_markets_by_volume(limit=10)
-        return self._cached_markets
+            self._cached_markets = await self.polymarket.get_top_markets_by_volume(limit=50)
+
+        # Filter to edge markets only
+        edge_markets = []
+        for market in self._cached_markets:
+            if edge_filter.matches_edge(market.question, market.tags):
+                edge_markets.append(market)
+                if len(edge_markets) >= 10:
+                    break
+
+        return edge_markets
 
     async def monitor_loop(self):
-        """Main monitoring loop."""
+        """Main monitoring loop - optimized for fast new market detection."""
         logger.info("Starting market monitoring loop")
         logger.info(f"Poll interval: {config.poll_interval_seconds} seconds")
-        logger.info(f"Volume threshold: ${config.volume_threshold_usd:,.0f}")
+        logger.info(f"Liquidity threshold: ${config.liquidity_threshold_usd:,.0f}")
         logger.info(f"Price change threshold: {config.price_change_threshold:.0%}")
 
+        # List edge domains
+        from edge_filter import EdgeDomain
+        domains = [edge_filter.get_domain_name(d) for d in EdgeDomain]
+        domains_str = ", ".join(domains)
+
         await self.notifier.send_message(
-            "🚀 <b>Polymarket Bot Started</b>\n\n"
-            f"Monitoring markets every {config.poll_interval_seconds} seconds.\n"
-            f"Volume threshold: ${config.volume_threshold_usd:,.0f}\n"
-            f"Price change threshold: {config.price_change_threshold:.0%}\n\n"
-            "Use /status to check bot health."
+            "🚀 <b>Polymarket Edge Bot Démarré</b>\n\n"
+            f"⚡ Surveillance toutes les {config.poll_interval_seconds} secondes\n"
+            f"💧 Seuil liquidité: ${config.liquidity_threshold_usd:,.0f}\n"
+            f"📊 Seuil changement prix: {config.price_change_threshold:.0%}\n\n"
+            f"🎯 <b>Domaines surveillés:</b>\n{domains_str}\n\n"
+            "Utilise /status pour voir l'état du bot\n"
+            "Utilise /trending pour voir les marchés edge actifs"
         )
 
         while self._running:
@@ -90,14 +110,12 @@ class PolymarketBot:
             await asyncio.sleep(config.poll_interval_seconds)
 
     async def _check_markets(self):
-        """Check markets for alerts."""
+        """Check markets for alerts - focused on edge domains."""
         logger.info("Checking markets...")
 
         try:
-            markets = await self.polymarket.get_active_markets(
-                limit=100,
-                tags=config.watched_tags,
-            )
+            # Fetch more markets to increase chance of catching new ones
+            markets = await self.polymarket.get_active_markets(limit=200)
 
             if not markets:
                 logger.warning("No markets fetched from API")
@@ -105,9 +123,17 @@ class PolymarketBot:
 
             logger.info(f"Fetched {len(markets)} active markets")
 
-            self._cached_markets = markets[:10]
+            # Cache for trending
+            self._cached_markets = markets[:50]
 
+            # Check for alerts (only edge domains will trigger)
             alerts = self.tracker.check_markets(markets)
+
+            # Count edge markets
+            self._edge_markets_count = sum(
+                1 for m in markets
+                if edge_filter.matches_edge(m.question, m.tags)
+            )
 
             if alerts:
                 logger.info(f"Found {len(alerts)} alerts to send")
@@ -115,10 +141,9 @@ class PolymarketBot:
                 self._alerts_sent_today += sent
                 logger.info(f"Sent {sent}/{len(alerts)} alerts")
             else:
-                logger.info("No new alerts")
+                logger.info(f"No new alerts (tracking {self._edge_markets_count} edge markets)")
 
-            self._last_check = datetime.utcnow()
-
+            self._last_check = datetime.now(timezone.utc)
             self.tracker.cleanup_old_alerts()
 
         except Exception as e:
@@ -126,7 +151,7 @@ class PolymarketBot:
 
     async def start(self):
         """Start the bot."""
-        logger.info("Starting Polymarket Telegram Bot...")
+        logger.info("Starting Polymarket Edge Bot...")
 
         try:
             config.validate()
@@ -176,7 +201,7 @@ class PolymarketBot:
         await self.polymarket.close()
 
         try:
-            await self.notifier.send_message("🛑 <b>Polymarket Bot Stopped</b>")
+            await self.notifier.send_message("🛑 <b>Polymarket Edge Bot Arrêté</b>")
         except Exception:
             pass
 
