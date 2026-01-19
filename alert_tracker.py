@@ -243,6 +243,12 @@ class AlertTracker:
                 self._known_markets[market_id] = self._get_market_state(market)
                 return alerts
 
+            # FILTER 3: Skip alerts if no real volume (volume 24h = 0 means no real activity)
+            if market.volume_24h < 100:  # Minimum $100 volume to consider real activity
+                self._known_markets[market_id] = self._get_market_state(market)
+                logger.debug(f"Skipping low volume market: {market.question[:50]}... (vol: ${market.volume_24h})")
+                return alerts
+
             # PRICE CHANGE DETECTION
             for outcome, current_price in zip(market.outcomes, market.outcome_prices):
                 previous_price = previous_state["prices"].get(outcome)
