@@ -124,16 +124,43 @@ class PolymarketClient:
 
     def _parse_market(self, data: dict) -> Market:
         """Parse market data from API response."""
-        outcomes = data.get("outcomes", [])
-        if isinstance(outcomes, str):
-            outcomes = outcomes.split(",") if outcomes else []
+        outcomes_raw = data.get("outcomes", [])
+        outcomes = []
+        try:
+            if isinstance(outcomes_raw, str):
+                # Handle JSON string format like '["Yes", "No"]'
+                import json
+                try:
+                    parsed = json.loads(outcomes_raw)
+                    if isinstance(parsed, list):
+                        outcomes = [str(o) for o in parsed]
+                    else:
+                        outcomes = outcomes_raw.split(",") if outcomes_raw else []
+                except json.JSONDecodeError:
+                    outcomes = outcomes_raw.split(",") if outcomes_raw else []
+            elif isinstance(outcomes_raw, list):
+                outcomes = [str(o) for o in outcomes_raw]
+        except (ValueError, TypeError):
+            outcomes = []
 
         outcome_prices_raw = data.get("outcomePrices", [])
-        if isinstance(outcome_prices_raw, str):
-            outcome_prices = [float(p) for p in outcome_prices_raw.split(",") if p]
-        elif isinstance(outcome_prices_raw, list):
-            outcome_prices = [float(p) for p in outcome_prices_raw]
-        else:
+        outcome_prices = []
+        try:
+            if isinstance(outcome_prices_raw, str):
+                # Handle JSON string format like '["0.5", "0.5"]'
+                import json
+                try:
+                    parsed = json.loads(outcome_prices_raw)
+                    if isinstance(parsed, list):
+                        outcome_prices = [float(p) for p in parsed]
+                    else:
+                        outcome_prices = [float(p) for p in outcome_prices_raw.split(",") if p]
+                except json.JSONDecodeError:
+                    outcome_prices = [float(p) for p in outcome_prices_raw.split(",") if p]
+            elif isinstance(outcome_prices_raw, list):
+                outcome_prices = [float(p) for p in outcome_prices_raw]
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Could not parse outcome prices: {outcome_prices_raw} - {e}")
             outcome_prices = []
 
         end_date = None
