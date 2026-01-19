@@ -38,9 +38,14 @@ class Config:
     price_change_threshold: float = field(
         default_factory=lambda: float(os.getenv("PRICE_CHANGE_THRESHOLD", "0.10"))
     )
-    # Volume spike threshold (50% = 0.5)
+    # Volume spike threshold (100% = 1.0)
     volume_spike_threshold: float = field(
-        default_factory=lambda: float(os.getenv("VOLUME_SPIKE_THRESHOLD", "0.50"))
+        default_factory=lambda: float(os.getenv("VOLUME_SPIKE_THRESHOLD", "1.0"))
+    )
+
+    # Minimum liquidity for price/volume alerts (to avoid spam on small markets)
+    min_liquidity_for_alerts: float = field(
+        default_factory=lambda: float(os.getenv("MIN_LIQUIDITY_FOR_ALERTS", "2000"))
     )
 
     # Optional: filter by tags/categories

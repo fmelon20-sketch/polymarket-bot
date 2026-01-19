@@ -34,6 +34,7 @@ class PolymarketBot:
             liquidity_threshold=config.liquidity_threshold_usd,
             price_change_threshold=config.price_change_threshold,
             volume_spike_threshold=config.volume_spike_threshold,
+            min_liquidity_for_alerts=config.min_liquidity_for_alerts,
         )
         self.notifier = TelegramNotifier(
             token=config.telegram_bot_token,

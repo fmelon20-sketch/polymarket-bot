@@ -1,6 +1,7 @@
 """Alert tracking and detection for Polymarket markets - Edge-focused version."""
 
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -11,6 +12,57 @@ from polymarket_client import Market
 from edge_filter import edge_filter, EdgeMatch
 
 logger = logging.getLogger(__name__)
+
+# Patterns to detect daily/routine markets (weather, sports with specific dates)
+DAILY_MARKET_PATTERNS = [
+    # Weather with specific dates: "on January 19", "on 2026-01-19"
+    r'\bon\s+(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}\b',
+    r'\bon\s+\d{4}-\d{2}-\d{2}\b',
+    # Temperature ranges (daily weather markets)
+    r'temperature.*be\s+(between\s+)?\d+(-\d+)?°?f',
+    r'highest temperature.*on\s+',
+    r'lowest temperature.*on\s+',
+    # Daily sports with specific dates
+    r'\bwin\s+on\s+\d{4}-\d{2}-\d{2}\b',
+    r'\bmatch\s+on\s+(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}\b',
+]
+
+DAILY_PATTERNS_COMPILED = [re.compile(p, re.IGNORECASE) for p in DAILY_MARKET_PATTERNS]
+
+
+def is_daily_market(question: str) -> bool:
+    """Check if a market is a daily/routine market that should be excluded."""
+    for pattern in DAILY_PATTERNS_COMPILED:
+        if pattern.search(question):
+            return True
+    return False
+
+
+def extract_market_group(question: str) -> str:
+    """
+    Extract a group identifier from a market question.
+    Markets in the same group are similar (e.g., same event, different outcomes).
+    """
+    # Remove specific numbers, dates, temperature ranges to group similar markets
+    group = question.lower()
+
+    # Remove temperature ranges (45°F, 46-47°F, etc.)
+    group = re.sub(r'\d+(-\d+)?°?f', 'TEMP', group)
+
+    # Remove specific dates
+    group = re.sub(r'\d{4}-\d{2}-\d{2}', 'DATE', group)
+    group = re.sub(r'(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}', 'DATE', group)
+
+    # Remove specific percentages
+    group = re.sub(r'\d+(\.\d+)?%', 'PCT', group)
+
+    # Remove specific scores
+    group = re.sub(r'\d+-\d+', 'SCORE', group)
+
+    # Normalize whitespace
+    group = re.sub(r'\s+', ' ', group).strip()
+
+    return group
 
 
 class AlertType(Enum):
@@ -96,16 +148,22 @@ class AlertTracker:
         self,
         liquidity_threshold: float = 1000,
         price_change_threshold: float = 0.10,
-        volume_spike_threshold: float = 0.50,
+        volume_spike_threshold: float = 1.0,
+        min_liquidity_for_alerts: float = 2000,
     ):
         self.liquidity_threshold = liquidity_threshold
         self.price_change_threshold = price_change_threshold
         self.volume_spike_threshold = volume_spike_threshold
+        self.min_liquidity_for_alerts = min_liquidity_for_alerts
 
         # Track known markets and their last known state
         self._known_markets: dict[str, dict] = {}
         self._alerted_markets: set[str] = set()
         self._initialized: bool = False
+
+        # Track recently alerted groups to avoid spam (group_key -> timestamp)
+        self._alerted_groups: dict[str, datetime] = {}
+        self.group_cooldown_minutes: int = 60  # 1 hour cooldown per group
 
     def _get_market_state(self, market: Market) -> dict:
         """Get the current state of a market for comparison."""
@@ -115,6 +173,20 @@ class AlertTracker:
             "liquidity": market.liquidity,
             "last_seen": datetime.now(timezone.utc),
         }
+
+    def _is_group_on_cooldown(self, group_key: str) -> bool:
+        """Check if a market group is on cooldown."""
+        if group_key not in self._alerted_groups:
+            return False
+
+        last_alert = self._alerted_groups[group_key]
+        elapsed = (datetime.now(timezone.utc) - last_alert).total_seconds() / 60
+
+        return elapsed < self.group_cooldown_minutes
+
+    def _mark_group_alerted(self, group_key: str):
+        """Mark a group as recently alerted."""
+        self._alerted_groups[group_key] = datetime.now(timezone.utc)
 
     def check_market(self, market: Market) -> list[Alert]:
         """Check a market for alertable conditions - only for edge domains."""
@@ -131,6 +203,17 @@ class AlertTracker:
                 self._known_markets[market_id] = self._get_market_state(market)
             return []
 
+        # FILTER 1: Exclude daily/routine markets (weather with specific dates, etc.)
+        if is_daily_market(market.question):
+            # Still track but don't alert
+            if market_id not in self._known_markets:
+                self._known_markets[market_id] = self._get_market_state(market)
+            logger.debug(f"Skipping daily market: {market.question[:50]}...")
+            return []
+
+        # Get the market group for cooldown tracking
+        market_group = extract_market_group(market.question)
+
         # Get previous state if any
         previous_state = self._known_markets.get(market_id)
 
@@ -142,7 +225,8 @@ class AlertTracker:
             # Alert for new edge markets with sufficient liquidity
             elif market.liquidity >= self.liquidity_threshold:
                 alert_key = f"new_{market_id}"
-                if alert_key not in self._alerted_markets:
+                # Check group cooldown to avoid spam on similar markets
+                if alert_key not in self._alerted_markets and not self._is_group_on_cooldown(market_group):
                     alerts.append(Alert(
                         alert_type=AlertType.NEW_MARKET,
                         market=market,
@@ -150,8 +234,15 @@ class AlertTracker:
                         edge_match=edge_match,
                     ))
                     self._alerted_markets.add(alert_key)
+                    self._mark_group_alerted(market_group)
                     logger.info(f"New edge market alert: {market.question[:50]}... [{edge_match.domain.value}]")
         else:
+            # FILTER 2: Minimum liquidity for price/volume alerts
+            if market.liquidity < self.min_liquidity_for_alerts:
+                # Update state but skip alerts for small markets
+                self._known_markets[market_id] = self._get_market_state(market)
+                return alerts
+
             # PRICE CHANGE DETECTION
             for outcome, current_price in zip(market.outcomes, market.outcome_prices):
                 previous_price = previous_state["prices"].get(outcome)
@@ -160,7 +251,8 @@ class AlertTracker:
 
                     if abs(price_change) >= self.price_change_threshold:
                         alert_key = f"price_{market_id}_{outcome}_{datetime.now(timezone.utc).strftime('%Y%m%d%H')}"
-                        if alert_key not in self._alerted_markets:
+                        # Check group cooldown
+                        if alert_key not in self._alerted_markets and not self._is_group_on_cooldown(market_group):
                             alerts.append(Alert(
                                 alert_type=AlertType.PRICE_CHANGE,
                                 market=market,
@@ -174,6 +266,7 @@ class AlertTracker:
                                 },
                             ))
                             self._alerted_markets.add(alert_key)
+                            self._mark_group_alerted(market_group)
                             logger.info(f"Price change alert: {market.question[:50]}... [{price_change:+.1%}]")
                             break  # One alert per market per check
 
@@ -183,7 +276,8 @@ class AlertTracker:
                 volume_increase = (market.volume_24h - prev_volume) / prev_volume
                 if volume_increase > self.volume_spike_threshold:
                     alert_key = f"volume_{market_id}_{datetime.now(timezone.utc).strftime('%Y%m%d%H')}"
-                    if alert_key not in self._alerted_markets:
+                    # Check group cooldown
+                    if alert_key not in self._alerted_markets and not self._is_group_on_cooldown(market_group):
                         alerts.append(Alert(
                             alert_type=AlertType.VOLUME_SPIKE,
                             market=market,
@@ -192,6 +286,7 @@ class AlertTracker:
                             metadata={"volume_increase": volume_increase},
                         ))
                         self._alerted_markets.add(alert_key)
+                        self._mark_group_alerted(market_group)
                         logger.info(f"Volume spike alert: {market.question[:50]}... [+{volume_increase:.0%}]")
 
         # Update known state
