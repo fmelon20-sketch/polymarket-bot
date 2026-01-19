@@ -83,6 +83,7 @@ class AlertTracker:
         # Track known markets and their last known state
         self._known_markets: dict[str, dict] = {}
         self._alerted_markets: set[str] = set()  # Markets we've already alerted for
+        self._initialized: bool = False  # First run flag - don't alert on initial load
 
     def _get_market_state(self, market: Market) -> dict:
         """Get the current state of a market for comparison."""
@@ -103,8 +104,11 @@ class AlertTracker:
 
         # Check for new market
         if previous_state is None:
-            # Only alert for new markets with significant volume
-            if market.volume_24h >= self.volume_threshold:
+            # On first run, just learn markets without alerting
+            if not self._initialized:
+                pass  # Just learn, don't alert
+            # Only alert for new markets with significant volume AFTER initial load
+            elif market.volume_24h >= self.volume_threshold:
                 alert_key = f"new_{market_id}"
                 if alert_key not in self._alerted_markets:
                     alerts.append(Alert(
@@ -166,6 +170,12 @@ class AlertTracker:
                 all_alerts.extend(alerts)
             except Exception as e:
                 logger.error(f"Error checking market {market.id}: {e}")
+
+        # After first run, mark as initialized so future new markets trigger alerts
+        if not self._initialized and markets:
+            self._initialized = True
+            logger.info(f"Initial market load complete. Tracking {len(self._known_markets)} markets. Future changes will trigger alerts.")
+
         return all_alerts
 
     def get_trending_markets(self, markets: list[Market], top_n: int = 5) -> list[Market]:
