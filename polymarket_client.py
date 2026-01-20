@@ -49,6 +49,32 @@ class Market:
             for outcome, price in zip(self.outcomes, self.outcome_prices)
         )
 
+    @property
+    def is_dead(self) -> bool:
+        """Check if market is essentially resolved (99%+ or 1%- on any outcome).
+
+        These markets have no trading value - the outcome is already decided.
+        """
+        if not self.outcome_prices:
+            return False
+        for price in self.outcome_prices:
+            if price >= 0.97 or price <= 0.03:
+                return True
+        return False
+
+    @property
+    def is_interesting(self) -> bool:
+        """Check if market has interesting odds (not too extreme).
+
+        Markets between 10-90% on all outcomes are more interesting for trading.
+        """
+        if not self.outcome_prices:
+            return False
+        for price in self.outcome_prices:
+            if price >= 0.90 or price <= 0.10:
+                return False
+        return True
+
     def price_for_outcome(self, outcome: str) -> Optional[float]:
         """Get the price for a specific outcome."""
         try:

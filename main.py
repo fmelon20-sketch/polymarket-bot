@@ -86,17 +86,20 @@ class PolymarketBot:
             all_markets = await self.polymarket.get_all_active_markets()
             self._total_markets_count = len(all_markets)
 
-            # Filter to find edge markets
+            # Filter to find edge markets (exclude dead markets for trending)
             edge_markets = []
+            edge_markets_alive = []
             for market in all_markets:
                 if edge_filter.matches_edge(market.question, market.tags):
                     edge_markets.append(market)
+                    if not market.is_dead:
+                        edge_markets_alive.append(market)
 
             self._edge_markets_count = len(edge_markets)
 
-            # Cache top edge markets by volume for /trending
-            edge_markets.sort(key=lambda m: m.volume_24h, reverse=True)
-            self._cached_edge_markets = edge_markets[:50]
+            # Cache top ALIVE edge markets by liquidity for /trending
+            edge_markets_alive.sort(key=lambda m: m.liquidity, reverse=True)
+            self._cached_edge_markets = edge_markets_alive[:50]
 
             # Learn all markets (no alerts on initial scan)
             self.tracker.check_markets(all_markets)
@@ -171,17 +174,20 @@ class PolymarketBot:
             self._total_markets_count = len(all_markets)
             logger.info(f"Fetched {len(all_markets)} active markets")
 
-            # Find and cache edge markets
+            # Find and cache edge markets (exclude dead for trending)
             edge_markets = []
+            edge_markets_alive = []
             for market in all_markets:
                 if edge_filter.matches_edge(market.question, market.tags):
                     edge_markets.append(market)
+                    if not market.is_dead:
+                        edge_markets_alive.append(market)
 
             self._edge_markets_count = len(edge_markets)
 
-            # Update cached edge markets for /trending
-            edge_markets.sort(key=lambda m: m.volume_24h, reverse=True)
-            self._cached_edge_markets = edge_markets[:50]
+            # Update cached ALIVE edge markets by liquidity for /trending
+            edge_markets_alive.sort(key=lambda m: m.liquidity, reverse=True)
+            self._cached_edge_markets = edge_markets_alive[:50]
 
             # Check for alerts (only edge domains will trigger)
             alerts = self.tracker.check_markets(all_markets)

@@ -190,9 +190,9 @@ class AlertTracker:
     def __init__(
         self,
         liquidity_threshold: float = 1000,
-        price_change_threshold: float = 0.10,
-        volume_spike_threshold: float = 1.0,
-        min_liquidity_for_alerts: float = 2000,
+        price_change_threshold: float = 0.05,  # 5% price change (was 10%)
+        volume_spike_threshold: float = 0.50,  # 50% volume increase (was 100%)
+        min_liquidity_for_alerts: float = 1000,  # $1k min (was $2k)
     ):
         self.liquidity_threshold = liquidity_threshold
         self.price_change_threshold = price_change_threshold
@@ -252,6 +252,14 @@ class AlertTracker:
             if market_id not in self._known_markets:
                 self._known_markets[market_id] = self._get_market_state(market)
             logger.debug(f"Skipping daily market: {market.question[:50]}...")
+            return []
+
+        # FILTER 1b: Exclude dead markets (97%+ or 3%- = essentially resolved)
+        if market.is_dead:
+            # Still track but don't alert
+            if market_id not in self._known_markets:
+                self._known_markets[market_id] = self._get_market_state(market)
+            logger.debug(f"Skipping dead market: {market.question[:50]}... (prices: {market.formatted_prices})")
             return []
 
         # Get the market group for cooldown tracking
