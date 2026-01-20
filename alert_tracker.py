@@ -266,10 +266,10 @@ class AlertTracker:
             if not self._initialized:
                 pass  # Just learn, don't alert
             # Alert for new edge markets with sufficient liquidity
+            # NO group cooldown for new markets - we want ALL of them!
             elif market.liquidity >= self.liquidity_threshold:
                 alert_key = f"new_{market_id}"
-                # Check group cooldown to avoid spam on similar markets
-                if alert_key not in self._alerted_markets and not self._is_group_on_cooldown(market_group):
+                if alert_key not in self._alerted_markets:
                     alerts.append(Alert(
                         alert_type=AlertType.NEW_MARKET,
                         market=market,
@@ -277,7 +277,6 @@ class AlertTracker:
                         edge_match=edge_match,
                     ))
                     self._alerted_markets.add(alert_key)
-                    self._mark_group_alerted(market_group)
                     logger.info(f"New edge market alert: {market.question[:50]}... [{edge_match.domain.value}]")
         else:
             # FILTER 2: Minimum liquidity for price/volume alerts
