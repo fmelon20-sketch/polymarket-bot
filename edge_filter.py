@@ -109,14 +109,17 @@ EDGE_KEYWORDS: dict[EdgeDomain, list[str]] = {
     ],
 
     EdgeDomain.WEATHER: [
-        # General
-        "weather", "météo", "meteo", "temperature", "températures",
+        # General - more specific to avoid false positives
+        "weather forecast", "météo", "meteo",
         "heat wave", "canicule", "cold wave", "vague de froid",
-        "snow", "neige", "rain", "pluie", "storm", "tempête", "tempete",
+        "snowfall", "snowstorm", "neige", "rainfall", "pluie",
+        "thunderstorm", "tempête", "tempete", "hurricane", "typhoon", "cyclone",
         "flooding", "inondation", "drought", "sécheresse", "secheresse",
         # Specific to France/Europe
         "france weather", "europe weather", "paris weather",
         "météo france", "meteo france",
+        # Climate specific
+        "celsius", "fahrenheit", "precipitation",
     ],
 
     EdgeDomain.EARTHQUAKE: [

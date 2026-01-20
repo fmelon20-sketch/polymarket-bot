@@ -27,14 +27,21 @@ DAILY_MARKET_PATTERNS = [
     r'\bmatch\s+on\s+(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}\b',
 ]
 
-# Patterns to detect live/in-play sports markets (no PRICE_CHANGE alerts for these)
+# Patterns to detect live/in-play sports markets (no PRICE_CHANGE/VOLUME alerts for these)
 LIVE_SPORTS_PATTERNS = [
-    # Match outcomes with "vs" or "v" (indicates specific match)
+    # Match outcomes with "vs" or "v" (indicates specific match) - e.g., "Liverpool vs Marseille"
     r'\bvs\.?\s+\w+',
-    r'\bv\s+\w+.*\b(win|beat|defeat|score|goal)',
+    r'\s+v\s+\w+',  # "Team A v Team B"
+    # Spread betting - e.g., "Spread: FC Barcelona (-1.5)"
+    r'\bspread:\s*',
+    r'\(-?\d+\.?\d*\)',  # Point spreads like (-1.5)
+    # Over/Under markets - e.g., "O/U 2.5", "O/U 3.5"
+    r'\bo/u\s+\d+',
+    r'\bover/under\s+\d+',
+    # Both teams to score
+    r'\bboth\s+teams\s+to\s+score',
     # Specific match questions
     r'\b(win|beat|defeat)\s+(against|vs)',
-    r'(will|to)\s+\w+\s+(win|beat|defeat)\s+',
     # Score/goal related
     r'\bscore\s+(\d+\+?|over|under|more|at least)',
     r'\bgoals?\s+(in|during|by|for)',
@@ -44,11 +51,13 @@ LIVE_SPORTS_PATTERNS = [
     r'score\s+(first|next)',
     # Match result
     r'\b(halftime|half-time|full-time|fulltime)\s+(result|score)',
-    r'\bdraw\s+(at|in)',
+    r'\bend\s+in\s+a\s+draw',  # "will X vs Y end in a draw"
     # Sport-specific live markets
     r'\b(red|yellow)\s+card',
     r'\bpenalty\s+(kick|scored|missed)',
     r'\bcorners?\s+(over|under|\d+)',
+    # Direct team matchups (Team A vs Team B format without "vs" keyword)
+    r'^[A-Z][\w\s]+\s+vs?\s+[A-Z][\w\s]+$',  # Full line match
 ]
 
 LIVE_SPORTS_COMPILED = [re.compile(p, re.IGNORECASE) for p in LIVE_SPORTS_PATTERNS]
@@ -313,23 +322,26 @@ class AlertTracker:
                                 break  # One alert per market per check
 
             # VOLUME SPIKE DETECTION
-            prev_volume = previous_state["volume_24h"]
-            if prev_volume > 0:
-                volume_increase = (market.volume_24h - prev_volume) / prev_volume
-                if volume_increase > self.volume_spike_threshold:
-                    alert_key = f"volume_{market_id}_{datetime.now(timezone.utc).strftime('%Y%m%d%H')}"
-                    # Check group cooldown
-                    if alert_key not in self._alerted_markets and not self._is_group_on_cooldown(market_group):
-                        alerts.append(Alert(
-                            alert_type=AlertType.VOLUME_SPIKE,
-                            market=market,
-                            message=f"Pic de volume détecté: +{volume_increase:.0%}",
-                            edge_match=edge_match,
-                            metadata={"volume_increase": volume_increase},
-                        ))
-                        self._alerted_markets.add(alert_key)
-                        self._mark_group_alerted(market_group)
-                        logger.info(f"Volume spike alert: {market.question[:50]}... [+{volume_increase:.0%}]")
+            # Also skip for live sports (same logic as price change)
+            if not is_live_sports_market(market.question):
+                prev_volume = previous_state["volume_24h"]
+                # Only alert if previous volume was substantial (>$500) to avoid spam on newly tracked markets
+                if prev_volume >= 500:
+                    volume_increase = (market.volume_24h - prev_volume) / prev_volume
+                    if volume_increase > self.volume_spike_threshold:
+                        alert_key = f"volume_{market_id}_{datetime.now(timezone.utc).strftime('%Y%m%d%H')}"
+                        # Check group cooldown
+                        if alert_key not in self._alerted_markets and not self._is_group_on_cooldown(market_group):
+                            alerts.append(Alert(
+                                alert_type=AlertType.VOLUME_SPIKE,
+                                market=market,
+                                message=f"Pic de volume détecté: +{volume_increase:.0%}",
+                                edge_match=edge_match,
+                                metadata={"volume_increase": volume_increase},
+                            ))
+                            self._alerted_markets.add(alert_key)
+                            self._mark_group_alerted(market_group)
+                            logger.info(f"Volume spike alert: {market.question[:50]}... [+{volume_increase:.0%}]")
 
         # Update known state
         self._known_markets[market_id] = self._get_market_state(market)
